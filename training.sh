@@ -1,0 +1,2 @@
+#!/bin/bash
+CUDA_VISIBLE_DEVICES=0 python main.py --drop_out 0.25 --early_stopping --lr 2e-4 --k 10 --label_frac 1.0 --exp_code cam16_2 --weighted_sample --bag_loss ce --inst_loss svm --task task_1_tumor_vs_normal --model_type clam_sb --log_data --data_root_dir ~/../../mnt/nvme0n1/Dataset/classification/histopathology_classification/camelyon/CLAM_256x256/train/Featurized_data --split_dir task_1_tumor_vs_normal_100 --PI_0 1 --PI_1 1
