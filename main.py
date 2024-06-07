@@ -19,7 +19,7 @@ import torch.nn.functional as F
 
 import pandas as pd
 import numpy as np
-
+from distutils.util import strtobool
 
 def main(args):
     # create results directory if necessary
@@ -46,7 +46,7 @@ def main(args):
                 csv_path='{}/splits_{}.csv'.format(args.split_dir, i))
         
         datasets = (train_dataset, val_dataset, test_dataset)
-        results, test_auc, val_auc, test_acc, val_acc  = train(datasets, i, args)
+        results, test_auc, val_auc, test_acc, val_acc  = train(datasets, i, args, PI_0=args.PI_0, PI_1=args.PI_1)
         all_test_auc.append(test_auc)
         all_val_auc.append(val_auc)
         all_test_acc.append(test_acc)
@@ -109,6 +109,8 @@ parser.add_argument('--subtyping', action='store_true', default=False,
 parser.add_argument('--bag_weight', type=float, default=0.7,
                     help='clam: weight coefficient for bag-level loss (default: 0.7)')
 parser.add_argument('--B', type=int, default=8, help='numbr of positive/negative patches to sample for clam')
+parser.add_argument('--PI_0', type=lambda x: bool(strtobool(x)), default=0)
+parser.add_argument('--PI_1', type=lambda x: bool(strtobool(x)), default=0)
 args = parser.parse_args()
 device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -154,8 +156,8 @@ print('\nLoad Dataset')
 
 if args.task == 'task_1_tumor_vs_normal':
     args.n_classes=2
-    dataset = Generic_MIL_Dataset(csv_path = 'dataset_csv/tumor_vs_normal_dummy_clean.csv',
-                            data_dir= os.path.join(args.data_root_dir, 'tumor_vs_normal_resnet_features'),
+    dataset = Generic_MIL_Dataset(csv_path = 'cam16.csv',
+                            data_dir= os.path.join(args.data_root_dir, 'cam16'),
                             shuffle = False, 
                             seed = args.seed, 
                             print_info = True,
@@ -173,7 +175,6 @@ elif args.task == 'task_2_tumor_subtyping':
                             label_dict = {'subtype_1':0, 'subtype_2':1, 'subtype_3':2},
                             patient_strat= False,
                             ignore=[])
-
     if args.model_type in ['clam_sb', 'clam_mb']:
         assert args.subtyping 
         
