@@ -4,6 +4,28 @@ import torch.nn.functional as F
 import numpy as np
 import pdb
 
+class ConvStream(nn.Module): #Ahmad
+
+    def __init__(self):
+        super(ConvStream, self).__init__()
+        self.conv = nn.Conv2d(1,128,(4,4),stride=2)
+        self.conv2 = nn.Conv2d(128, 128, (4, 4), stride=2)
+        self.lin = nn.Linear(128, 512)
+        
+        
+        self.act = nn.ReLU()
+        self.norm = nn.BatchNorm2d(128)
+        self.GAP = nn.AvgPool2d((6, 6))        
+        self.DO = nn.Dropout(0.3)
+        
+     
+    def forward(self, x):
+        x_conv1 = self.norm(self.act(self.conv(x)))
+        x_conv2 = self.norm(self.act(self.conv2(x_conv1)))
+        x_1d = self.DO(torch.squeeze(self.GAP(x_conv2),(2,3)))
+        out1 = self.DO(self.act(self.lin(x_1d)))
+        return out1
+        
 """
 Attention Network without Gating (2 fc layers)
 args:
@@ -76,10 +98,20 @@ args:
 """
 class CLAM_SB(nn.Module):
     def __init__(self, gate = True, size_arg = "small", dropout = 0., k_sample=8, n_classes=2,
-        instance_loss_fn=nn.CrossEntropyLoss(), subtyping=False, embed_dim=1024):
+        instance_loss_fn=nn.CrossEntropyLoss(), subtyping=False, embed_dim=1024, PI_0=False, PI_1=False): #Added the PI argument. Ahmad
         super().__init__()
+        self.PI_0 = PI_0
+        self.PI_1 = PI_1
+        if self.PI_0:
+            self.conv_stream_0 = ConvStream() #Convolutional branch for Persistence Images. Ahmad.
+        if self.PI_1:
+            self.conv_stream_1 = ConvStream() #Convolutional branch for Persistence Images. Ahmad.
+            
         self.size_dict = {"small": [embed_dim, 512, 256], "big": [embed_dim, 512, 384]}
         size = self.size_dict[size_arg]
+        
+        
+        
         fc = [nn.Linear(size[0], size[1]), nn.ReLU(), nn.Dropout(dropout)]
         if gate:
             attention_net = Attn_Net_Gated(L = size[1], D = size[2], dropout = dropout, n_classes = 1)
@@ -87,7 +119,12 @@ class CLAM_SB(nn.Module):
             attention_net = Attn_Net(L = size[1], D = size[2], dropout = dropout, n_classes = 1)
         fc.append(attention_net)
         self.attention_net = nn.Sequential(*fc)
-        self.classifiers = nn.Linear(size[1], n_classes)
+        if self.PI_0 and self.PI_1:
+            self.classifiers = nn.Linear(size[1] + 512*2, n_classes)
+        elif (self.PI_0 and not self.PI_1) or (self.PI_1 and not self.PI_0):
+            self.classifiers = nn.Linear(size[1] + 512, n_classes)
+        else:
+            self.classifiers = nn.Linear(size[1], n_classes)
         instance_classifiers = [nn.Linear(size[1], 2) for i in range(n_classes)]
         self.instance_classifiers = nn.ModuleList(instance_classifiers)
         self.k_sample = k_sample
@@ -135,7 +172,7 @@ class CLAM_SB(nn.Module):
         instance_loss = self.instance_loss_fn(logits, p_targets)
         return instance_loss, p_preds, p_targets
 
-    def forward(self, h, label=None, instance_eval=False, return_features=False, attention_only=False):
+    def forward(self, h, PI_0_input=None, PI_1_input=None, label=None, instance_eval=False, return_features=False, attention_only=False): # 
         A, h = self.attention_net(h)  # NxK        
         A = torch.transpose(A, 1, 0)  # KxN
         if attention_only:
@@ -168,6 +205,16 @@ class CLAM_SB(nn.Module):
                 total_inst_loss /= len(self.instance_classifiers)
                 
         M = torch.mm(A, h) 
+        if self.PI_0 and self.PI_1:
+            conv_features_0 = self.conv_stream_0(PI_0_input) #Get embedding of persistence images. Ahmad
+            conv_features_1 = self.conv_stream_1(PI_1_input) 
+            M = torch.cat((M, conv_features_0,conv_features_1), dim=1) #concatenate in the feature space. Ahmad
+        elif self.PI_0 and not self.PI_1:
+            conv_features_0 = self.conv_stream_0(PI_0_input) 
+            M = torch.cat((M, conv_features_0), dim=1)
+        elif not self.PI_0 and self.PI_1:
+            conv_features_1 = self.conv_stream_1(PI_1_input) 
+            M = torch.cat((M, conv_features_1), dim=1)
         logits = self.classifiers(M)
         Y_hat = torch.topk(logits, 1, dim = 1)[1]
         Y_prob = F.softmax(logits, dim = 1)
