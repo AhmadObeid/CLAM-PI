@@ -8,6 +8,9 @@ from models.model_clam import CLAM_MB, CLAM_SB
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.metrics import auc as calc_auc
+import pdb
+from torchviz import make_dot
+
 
 device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -89,7 +92,7 @@ class EarlyStopping:
         torch.save(model.state_dict(), ckpt_name)
         self.val_loss_min = val_loss
 
-def train(datasets, cur, args):
+def train(datasets, cur, args, PI_0=False, PI_1=False):
     """   
         train for a single fold
     """
@@ -147,7 +150,7 @@ def train(datasets, cur, args):
             instance_loss_fn = nn.CrossEntropyLoss()
         
         if args.model_type =='clam_sb':
-            model = CLAM_SB(**model_dict, instance_loss_fn=instance_loss_fn)
+            model = CLAM_SB(**model_dict, instance_loss_fn=instance_loss_fn, PI_0=PI_0, PI_1=PI_1)
         elif args.model_type == 'clam_mb':
             model = CLAM_MB(**model_dict, instance_loss_fn=instance_loss_fn)
         else:
@@ -162,7 +165,8 @@ def train(datasets, cur, args):
     _ = model.to(device)
     print('Done!')
     print_network(model)
-
+    
+    
     print('\nInit optimizer ...', end=' ')
     optimizer = get_optim(model, args)
     print('Done!')
@@ -172,7 +176,6 @@ def train(datasets, cur, args):
     val_loader = get_split_loader(val_split,  testing = args.testing)
     test_loader = get_split_loader(test_split, testing = args.testing)
     print('Done!')
-
     print('\nSetup EarlyStopping...', end=' ')
     if args.early_stopping:
         early_stopping = EarlyStopping(patience = 20, stop_epoch=50, verbose = True)
@@ -235,8 +238,11 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
     print('\n')
     for batch_idx, (data, label) in enumerate(loader):
         data, label = data.to(device), label.to(device)
-        logits, Y_prob, Y_hat, _, instance_dict = model(data, label=label, instance_eval=True)
-
+        image_input_0 = torch.randn(1,1,32,32).to(device)
+        image_input_1 = torch.randn(1,1,32,32).to(device)
+        logits, Y_prob, Y_hat, _, instance_dict = model(data, image_input_0, image_input_1, label=label, instance_eval=True)
+        make_dot(logits, params=dict(model.named_parameters())).render("model_tree_PI_Both", format="png")
+        pdb.set_trace()
         acc_logger.log(Y_hat, label)
         loss = loss_fn(logits, label)
         loss_value = loss.item()
